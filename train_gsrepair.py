@@ -1,29 +1,8 @@
-""" Train for generating LIIF, from image to implicit representation.
-
-    Config:
-        train_dataset:
-          dataset: $spec; wrapper: $spec; batch_size:
-        val_dataset:
-          dataset: $spec; wrapper: $spec; batch_size:
-        (data_norm):
-            inp: {sub: []; div: []}
-            gt: {sub: []; div: []}
-        (eval_type):
-        (eval_bsize):
-
-        model: $spec
-        optimizer: $spec
-        epoch_max:
-        (multi_step_lr):
-            milestones: []; gamma: 0.5
-        (resume): *.pth
-
-        (epoch_val): ; (epoch_save):
-"""
-
 import argparse
 import os
+import random
 
+import numpy as np
 import yaml
 import torch
 import torch.nn as nn
@@ -35,7 +14,7 @@ import datasets
 import models
 import utils
 from test import eval_psnr
-
+from utils import loss_fn
 
 def make_data_loader(spec, tag=''):
     if spec is None:
@@ -46,7 +25,10 @@ def make_data_loader(spec, tag=''):
 
     log('{} dataset: size={}'.format(tag, len(dataset)))
     for k, v in dataset[0].items():
-        log('  {}: shape={}'.format(k, tuple(v.shape if isinstance(v, torch.Tensor) else v)))
+        if isinstance(v, torch.Tensor):
+            log('  {}: shape={}'.format(k, tuple(v.shape)))
+        else:
+            log('  {}: {}'.format(k, v))
 
     loader = DataLoader(dataset, batch_size=spec['batch_size'],
         shuffle=(tag == 'train'), num_workers=8, pin_memory=True)
@@ -86,10 +68,8 @@ def prepare_training():
     return model, optimizer, epoch_start, lr_scheduler
 
 
-def train(train_loader, model, optimizer):
-    # TODO: 修改train的数据加载 以及loss的计算方式
+def train(train_loader, model, optimizer, writer):
     model.train()
-    loss_fn = nn.L1Loss()
     train_loss = utils.Averager()
 
     data_norm = config['data_norm']
@@ -100,13 +80,18 @@ def train(train_loader, model, optimizer):
     gt_sub = torch.FloatTensor(t['sub']).view(1, 1, -1).cuda()
     gt_div = torch.FloatTensor(t['div']).view(1, 1, -1).cuda()
 
+    train_loader.dataset.set_dynamic_scale_factor()
+    i = 0
+    last_pred = None
+    last_gt = None
     for batch in tqdm(train_loader, leave=False, desc='train'):
+        i += 1
         for k, v in batch.items():
             batch[k] = v.cuda()
 
         inp = (batch['inp'] - inp_sub) / inp_div
-        pred = model(inp, batch['target_shape'])
-
+        target_shape = batch['gt'].shape[-2:]
+        pred = model(inp, target_shape)
         gt = (batch['gt'] - gt_sub) / gt_div
         loss = loss_fn(pred, gt)
 
@@ -116,9 +101,15 @@ def train(train_loader, model, optimizer):
         loss.backward()
         optimizer.step()
 
+        last_pred = pred.detach()
+        last_gt = gt.detach()
         pred = None; loss = None
+        train_loader.dataset.set_dynamic_scale_factor()
+        if i % 100 == 0:
+            writer.add_images('train_imgs/pred', last_pred, i)
+            writer.add_images('train_imgs/gt', last_gt, i)
 
-    return train_loss.item()
+    return train_loss.item(), last_pred, last_gt
 
 
 def main(config_, save_path):
@@ -154,12 +145,14 @@ def main(config_, save_path):
 
         writer.add_scalar('lr', optimizer.param_groups[0]['lr'], epoch)
 
-        train_loss = train(train_loader, model, optimizer)
+        train_loss, train_pred, train_gt = train(train_loader, model, optimizer, writer)
         if lr_scheduler is not None:
             lr_scheduler.step()
 
         log_info.append('train: loss={:.4f}'.format(train_loss))
         writer.add_scalars('loss', {'train': train_loss}, epoch)
+        writer.add_images('train_imgs/pred', train_pred, epoch)
+        writer.add_images('train_imgs/gt', train_gt, epoch)
 
         if n_gpus > 1:
             model_ = model.module
@@ -186,13 +179,16 @@ def main(config_, save_path):
                 model_ = model.module
             else:
                 model_ = model
-            val_res = eval_psnr(val_loader, model_,
+            val_res, val_pred, val_gt = eval_psnr(val_loader, model_,
                 data_norm=config['data_norm'],
                 eval_type=config.get('eval_type'),
                 eval_bsize=config.get('eval_bsize'))
 
             log_info.append('val: psnr={:.4f}'.format(val_res))
             writer.add_scalars('psnr', {'val': val_res}, epoch)
+            writer.add_images('val/pred', val_pred, epoch)
+            writer.add_images('val/gt', val_gt, epoch)
+
             if val_res > max_val_v:
                 max_val_v = val_res
                 torch.save(sv_file, os.path.join(save_path, 'epoch-best.pth'))
@@ -207,6 +203,15 @@ def main(config_, save_path):
         writer.flush()
 
 
+def set_random_seed(seed=42):
+    if seed is not None:
+        torch.manual_seed(seed)
+        random.seed(seed)
+        torch.cuda.manual_seed(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        np.random.seed(seed)
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config')
@@ -216,6 +221,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
+
+    set_random_seed()
 
     with open(args.config, 'r') as f:
         config = yaml.load(f, Loader=yaml.FullLoader)

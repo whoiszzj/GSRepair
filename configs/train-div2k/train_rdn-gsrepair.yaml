@@ -28,11 +28,15 @@ val_dataset:
       inp_size: 48
       scale_max: 4
       sample_q: 2304
-  batch_size: 1
+  batch_size: 16
 
+#data_norm:
+#  inp: {sub: [0.5], div: [0.5]}
+#  gt: {sub: [0.5], div: [0.5]}
 data_norm:
-  inp: {sub: [0.5], div: [0.5]}
-  gt: {sub: [0.5], div: [0.5]}
+  inp: { sub: [ 0 ], div: [ 1.0 ] }
+  gt: { sub: [ 0 ], div: [ 1.0 ] }
+
 
 model:
   name: gsrepair
@@ -45,22 +49,23 @@ model:
       name: mlp
       args:
         out_dim: 2
-        hidden_list: [256, 256, 256, 256]
+        hidden_list: [ 256, 256 ]
     scale_net_spec:
       name: mlp
       args:
         out_dim: 2
-        hidden_list: [256, 256, 256, 256]
+        hidden_list: [ 256, 256 ]
     rot_net_spec:
-        name: mlp
-        args:
-            out_dim: 1
-            hidden_list: [256, 256, 256, 256]
+      name: mlp
+      args:
+        out_dim: 1
+        hidden_list: [ 256, 256 ]
     color_net_spec:
-        name: mlp
-        args:
-            out_dim: 3
-            hidden_list: [256, 256, 256, 256]
+      name: mlp
+      args:
+        out_dim: 3
+        hidden_list: [ 256, 256 ]
+
 
 optimizer:
   name: adam
@@ -68,7 +73,7 @@ optimizer:
     lr: 1.e-4
 epoch_max: 1000
 multi_step_lr:
-  milestones: [200, 400, 600, 800]
+  milestones: [ 200, 400, 600, 800 ]
   gamma: 0.5
 
 epoch_val: 1

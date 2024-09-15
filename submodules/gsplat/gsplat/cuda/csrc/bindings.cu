@@ -464,7 +464,7 @@ std::tuple<
         (float3 *)out_img.contiguous().data_ptr<float>(),
         *(float3 *)background.contiguous().data_ptr<float>()
     );
-
+    cudaDeviceSynchronize();
     return std::make_tuple(out_img, final_Ts, final_idx);
 }
 
@@ -774,7 +774,7 @@ std::
         (float3 *)v_colors.contiguous().data_ptr<float>(),
         v_opacity.contiguous().data_ptr<float>()
     );
-
+    cudaDeviceSynchronize();
     return std::make_tuple(v_xy, v_conic, v_colors, v_opacity);
 }
 
@@ -892,6 +892,7 @@ project_gaussians_2d_scale_rot_forward_tensor(
         (float3 *)conics_d.contiguous().data_ptr<float>(),
         num_tiles_hit_d.contiguous().data_ptr<int32_t>()
     );
+    cudaDeviceSynchronize();
 
     return std::make_tuple(
         xys_d, depths_d, radii_d, conics_d, num_tiles_hit_d
@@ -999,6 +1000,6 @@ project_gaussians_2d_scale_rot_backward_tensor(
         (float2 *)v_scale.contiguous().data_ptr<float>(),
         (float *)v_rot.contiguous().data_ptr<float>()
     );
-
+    cudaDeviceSynchronize();
     return std::make_tuple(v_cov2d, v_mean2d, v_scale, v_rot);
 }

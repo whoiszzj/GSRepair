@@ -7,6 +7,9 @@ import torch
 import numpy as np
 from torch.optim import SGD, Adam
 from tensorboardX import SummaryWriter
+import torch.nn.functional as F
+from pytorch_msssim import ms_ssim, ssim
+
 
 
 class Averager():
@@ -111,7 +114,7 @@ def make_coord(shape, ranges=None, flatten=True):
         r = (v1 - v0) / (2 * n)
         seq = v0 + r + (2 * r) * torch.arange(n).float()
         coord_seqs.append(seq)
-    ret = torch.stack(torch.meshgrid(*coord_seqs), dim=-1)
+    ret = torch.stack(torch.meshgrid(*coord_seqs, indexing='ij'), dim=-1)
     if flatten:
         ret = ret.view(-1, ret.shape[-1])
     return ret
@@ -144,3 +147,26 @@ def calc_psnr(sr, hr, dataset=None, scale=1, rgb_range=1):
         valid = diff
     mse = valid.pow(2).mean()
     return -10 * torch.log10(mse)
+
+
+def loss_fn(pred, target, loss_type='Fusion1', lambda_value=0.7):
+    target = target.detach()
+    pred = pred.float()
+    target  = target.float()
+    if loss_type == 'L2':
+        loss = F.mse_loss(pred, target)
+    elif loss_type == 'L1':
+        loss = F.l1_loss(pred, target)
+    elif loss_type == 'SSIM':
+        loss = 1 - ssim(pred, target, data_range=1, size_average=True)
+    elif loss_type == 'Fusion1':
+        loss = lambda_value * F.mse_loss(pred, target) + (1-lambda_value) * (1 - ssim(pred, target, data_range=1, size_average=True))
+    elif loss_type == 'Fusion2':
+        loss = lambda_value * F.l1_loss(pred, target) + (1-lambda_value) * (1 - ssim(pred, target, data_range=1, size_average=True))
+    elif loss_type == 'Fusion3':
+        loss = lambda_value * F.mse_loss(pred, target) + (1-lambda_value) * F.l1_loss(pred, target)
+    elif loss_type == 'Fusion4':
+        loss = lambda_value * F.l1_loss(pred, target) + (1-lambda_value) * (1 - ms_ssim(pred, target, data_range=1, size_average=True))
+    elif loss_type == 'Fusion_hinerv':
+        loss = lambda_value * F.l1_loss(pred, target) + (1-lambda_value)  * (1 - ms_ssim(pred, target, data_range=1, size_average=True, win_size=5))
+    return loss

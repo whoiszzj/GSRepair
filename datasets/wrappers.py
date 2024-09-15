@@ -76,6 +76,5 @@ class SRImplicitDownsampled(Dataset):
 
         return {
             'inp': crop_lr,
-            'gt': crop_hr,
-            'target_shape': crop_hr.shape[-2:],  # (H, W)
+            'gt': crop_hr
         }

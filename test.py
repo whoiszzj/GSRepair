@@ -58,6 +58,9 @@ def eval_psnr(loader, model, data_norm=None, eval_type=None, eval_bsize=None,
     val_res = utils.Averager()
 
     pbar = tqdm(loader, leave=False, desc='val')
+    last_pred = None
+    last_gt = None
+    loader.dataset.set_dynamic_scale_factor()
     for batch in pbar:
         for k, v in batch.items():
             batch[k] = v.cuda()
@@ -65,10 +68,12 @@ def eval_psnr(loader, model, data_norm=None, eval_type=None, eval_bsize=None,
         inp = (batch['inp'] - inp_sub) / inp_div
         if eval_bsize is None:
             with torch.no_grad():
-                pred = model(inp, batch['coord'], batch['cell'])
+                target_shape = batch['gt'].shape[-2:]
+                pred = model(inp, target_shape)
         else:
-            pred = batched_predict(model, inp,
-                batch['coord'], batch['cell'], eval_bsize)
+            raise NotImplementedError
+            # pred = batched_predict(model, inp,
+            #     batch['coord'], batch['cell'], eval_bsize)
         pred = pred * gt_div + gt_sub
         pred.clamp_(0, 1)
 
@@ -84,10 +89,14 @@ def eval_psnr(loader, model, data_norm=None, eval_type=None, eval_bsize=None,
         res = metric_fn(pred, batch['gt'])
         val_res.add(res.item(), inp.shape[0])
 
+        last_pred = pred.detach()
+        last_gt = batch['gt'].detach()
+        loader.dataset.set_dynamic_scale_factor()
+
         if verbose:
             pbar.set_description('val {:.4f}'.format(val_res.item()))
 
-    return val_res.item()
+    return val_res.item(), last_pred, last_gt
 
 
 if __name__ == '__main__':

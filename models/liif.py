@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from skimage.color.rgb_colors import coral
 
 import models
 from models import register
@@ -113,8 +114,11 @@ class LIIF(nn.Module):
         # ！！！需要注意的是，这样的就需要保证batch大小为1,或者同一个batch内所有的target_shape都是一样的！！！
         target_width, target_height = target_shape
         coord = make_coord((target_width, target_height)).cuda()
+        coord = coord.repeat(inp.shape[0], 1, 1)
         cell = torch.ones_like(coord).cuda()
-        cell[:, 0] *= 2 / target_width
-        cell[:, 1] *= 2 / target_height
+        cell[:, :, 0] *= 2 / target_width
+        cell[:, :, 1] *= 2 / target_height
         self.gen_feat(inp)
-        return self.query_rgb(coord, cell)
+        img = self.query_rgb(coord, cell)
+        img = img.permute(0, 2, 1).reshape(inp.shape[0], 3, target_height, target_width)
+        return img
