@@ -148,7 +148,7 @@ def calc_psnr(sr, hr, dataset=None, scale=1, rgb_range=1):
     return -10 * torch.log10(mse)
 
 
-def loss_fn(pred, target, loss_type='Fusion1', lambda_value=0.7):
+def loss_fn(pred, target, loss_type='L1', lambda_value=0.7):
     target = target.detach()
     pred = pred.float()
     target = target.float()
