@@ -151,8 +151,8 @@ def main(config_, save_path):
 
         log_info.append('train: loss={:.4f}'.format(train_loss))
         writer.add_scalars('loss', {'train': train_loss}, epoch)
-        writer.add_images('train_imgs/pred', train_pred, epoch)
-        writer.add_images('train_imgs/gt', train_gt, epoch)
+        writer.add_images('train_imgs_epoch/pred', train_pred, epoch)
+        writer.add_images('train_imgs_epoch/gt', train_gt, epoch)
 
         if n_gpus > 1:
             model_ = model.module
@@ -186,8 +186,8 @@ def main(config_, save_path):
 
             log_info.append('val: psnr={:.4f}'.format(val_res))
             writer.add_scalars('psnr', {'val': val_res}, epoch)
-            writer.add_images('val/pred', val_pred, epoch)
-            writer.add_images('val/gt', val_gt, epoch)
+            writer.add_images('val_imgs_epoch/pred', val_pred, epoch)
+            writer.add_images('val_imgs_epoch/gt', val_gt, epoch)
 
             if val_res > max_val_v:
                 max_val_v = val_res

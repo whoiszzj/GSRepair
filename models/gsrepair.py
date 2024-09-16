@@ -35,9 +35,10 @@ class GSRepair(nn.Module):
 
         self.offset_activation = F.tanh
         # self.scale_activation = scale_activation
-        self.scale_activation = F.softplus
+        # self.scale_activation = F.softplus
+        self.scale_activation = F.sigmoid
         self.rot_activation = F.sigmoid
-        self.color_activation = F.sigmoid
+        self.color_activation = F.tanh
 
         self.BLOCK_W, self.BLOCK_H = 16, 16
         self.background = torch.ones(3).cuda()
@@ -93,9 +94,10 @@ class GSRepair(nn.Module):
         # flatten
         B, C, H, W = self.feat.shape
         self.feat = F.unfold(self.feat, 3, padding=1).view(B, C * 9, H, W)  # [B, C * 9, H, W]
-        self.feat = self.feat.permute(0, 2, 3, 1).reshape(B, H * W, C * 9)  # [B, H * W, C * 9]
-        xy = self.get_xy(inp.shape[-2:], 2 * factor / max(target_shape[0], target_shape[1]))  # [B, H * W, 2]
-        scale = self.get_scale() / 2.0 * factor  # [B, H * W, 1]
+        self.feat = self.feat.permute(0, 2, 3, 1).reshape(B, H * W, C * 9)  # [B, H * W, C]
+        self.feat = torch.layer_norm(self.feat, self.feat.shape[2:])
+        xy = self.get_xy((H, W), 2 * factor / max(target_shape[0], target_shape[1]))  # [B, H * W, 2]
+        scale = self.get_scale() * factor  # [B, H * W, 2]
         rot = self.get_rot()  # [B, H * W, 1]
         color = self.get_color()  # [B, H * W, 3]
         # self.debug(inp[0], xy[0], scale[0], rot[0], target_shape)

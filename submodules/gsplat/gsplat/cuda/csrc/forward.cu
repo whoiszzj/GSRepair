@@ -616,8 +616,7 @@ __global__ void rasterize_forward_sum(
     if (inside) {
         // add background
         final_Ts[pix_id] = T; // transmittance at last gaussian in this pixel
-        final_index[pix_id] =
-            cur_idx; // index of in bin of last gaussian in this pixel
+        final_index[pix_id] = cur_idx; // index of in bin of last gaussian in this pixel
         float3 final_color;
         final_color.x = pix_out.x; //+ T * background.x;
         final_color.y = pix_out.y; //+ T * background.y;

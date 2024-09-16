@@ -49,22 +49,22 @@ model:
       name: mlp
       args:
         out_dim: 2
-        hidden_list: [ 256, 256 ]
+        hidden_list: [ 256, 128, 64 ]
     scale_net_spec:
       name: mlp
       args:
         out_dim: 2
-        hidden_list: [ 256, 256 ]
+        hidden_list: [ 256, 128, 64 ]
     rot_net_spec:
       name: mlp
       args:
         out_dim: 1
-        hidden_list: [ 256, 256 ]
+        hidden_list: [ 256, 128, 64 ]
     color_net_spec:
       name: mlp
       args:
         out_dim: 3
-        hidden_list: [ 256, 256 ]
+        hidden_list: [ 256, 128, 64 ]
 
 
 optimizer:
@@ -78,3 +78,5 @@ multi_step_lr:
 
 epoch_val: 1
 epoch_save: 100
+
+#resume: /home/zzj/Work/Projects/GSRepair/save/_train_rdn-gsrepair_PGMF/epoch-best.pth

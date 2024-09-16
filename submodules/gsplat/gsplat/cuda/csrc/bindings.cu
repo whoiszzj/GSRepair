@@ -57,6 +57,7 @@ compute_cov2d_bounds_tensor(const int num_pts, torch::Tensor &covs2d) {
         conics.contiguous().data_ptr<float>(),
         radii.contiguous().data_ptr<float>()
     );
+    cudaDeviceSynchronize();
     return std::make_tuple(conics, radii);
 }
 
@@ -83,6 +84,7 @@ torch::Tensor compute_sh_forward_tensor(
         coeffs.contiguous().data_ptr<float>(),
         colors.contiguous().data_ptr<float>()
     );
+    cudaDeviceSynchronize();
     return colors;
 }
 
@@ -114,6 +116,7 @@ torch::Tensor compute_sh_backward_tensor(
         v_colors.contiguous().data_ptr<float>(),
         v_coeffs.contiguous().data_ptr<float>()
     );
+    cudaDeviceSynchronize();
     return v_coeffs;
 }
 
@@ -189,6 +192,7 @@ project_gaussians_forward_tensor(
         (float3 *)conics_d.contiguous().data_ptr<float>(),
         num_tiles_hit_d.contiguous().data_ptr<int32_t>()
     );
+    cudaDeviceSynchronize();
 
     return std::make_tuple(
         cov3d_d, xys_d, depths_d, radii_d, conics_d, num_tiles_hit_d
@@ -267,6 +271,7 @@ project_gaussians_backward_tensor(
         (float3 *)v_scale.contiguous().data_ptr<float>(),
         (float4 *)v_quat.contiguous().data_ptr<float>()
     );
+    cudaDeviceSynchronize();
 
     return std::make_tuple(v_cov2d, v_cov3d, v_mean3d, v_scale, v_quat);
 }
@@ -308,6 +313,7 @@ std::tuple<torch::Tensor, torch::Tensor> map_gaussian_to_intersects_tensor(
         isect_ids_unsorted.contiguous().data_ptr<int64_t>(),
         gaussian_ids_unsorted.contiguous().data_ptr<int32_t>()
     );
+    cudaDeviceSynchronize();
 
     return std::make_tuple(isect_ids_unsorted, gaussian_ids_unsorted);
 }
@@ -326,6 +332,7 @@ torch::Tensor get_tile_bin_edges_tensor(
         isect_ids_sorted.contiguous().data_ptr<int64_t>(),
         (int2 *)tile_bins.contiguous().data_ptr<int>()
     );
+    cudaDeviceSynchronize();
     return tile_bins;
 }
 
@@ -393,7 +400,7 @@ rasterize_forward_tensor(
         (float3 *)out_img.contiguous().data_ptr<float>(),
         *(float3 *)background.contiguous().data_ptr<float>()
     );
-
+    cudaDeviceSynchronize();
     return std::make_tuple(out_img, final_Ts, final_idx);
 }
 

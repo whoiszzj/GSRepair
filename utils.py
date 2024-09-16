@@ -11,7 +11,6 @@ import torch.nn.functional as F
 from pytorch_msssim import ms_ssim, ssim
 
 
-
 class Averager():
 
     def __init__(self):
@@ -66,7 +65,7 @@ def ensure_path(path, remove=True):
     basename = os.path.basename(path.rstrip('/'))
     if os.path.exists(path):
         if remove and (basename.startswith('_')
-                or input('{} exists, remove? (y/[n]): '.format(path)) == 'y'):
+                       or input('{} exists, remove? (y/[n]): '.format(path)) == 'y'):
             shutil.rmtree(path)
             os.makedirs(path)
     else:
@@ -152,7 +151,7 @@ def calc_psnr(sr, hr, dataset=None, scale=1, rgb_range=1):
 def loss_fn(pred, target, loss_type='Fusion1', lambda_value=0.7):
     target = target.detach()
     pred = pred.float()
-    target  = target.float()
+    target = target.float()
     if loss_type == 'L2':
         loss = F.mse_loss(pred, target)
     elif loss_type == 'L1':
@@ -160,13 +159,21 @@ def loss_fn(pred, target, loss_type='Fusion1', lambda_value=0.7):
     elif loss_type == 'SSIM':
         loss = 1 - ssim(pred, target, data_range=1, size_average=True)
     elif loss_type == 'Fusion1':
-        loss = lambda_value * F.mse_loss(pred, target) + (1-lambda_value) * (1 - ssim(pred, target, data_range=1, size_average=True))
+        loss = lambda_value * F.mse_loss(pred, target) + (1 - lambda_value) * (
+                1 - ssim(pred, target, data_range=1, win_size=5, size_average=True)
+        )
     elif loss_type == 'Fusion2':
-        loss = lambda_value * F.l1_loss(pred, target) + (1-lambda_value) * (1 - ssim(pred, target, data_range=1, size_average=True))
+        loss = lambda_value * F.l1_loss(pred, target) + (1 - lambda_value) * (
+                1 - ssim(pred, target, data_range=1, win_size=5, size_average=True)
+        )
     elif loss_type == 'Fusion3':
-        loss = lambda_value * F.mse_loss(pred, target) + (1-lambda_value) * F.l1_loss(pred, target)
+        loss = lambda_value * F.mse_loss(pred, target) + (1 - lambda_value) * F.l1_loss(pred, target)
     elif loss_type == 'Fusion4':
-        loss = lambda_value * F.l1_loss(pred, target) + (1-lambda_value) * (1 - ms_ssim(pred, target, data_range=1, size_average=True))
+        loss = lambda_value * F.l1_loss(pred, target) + (1 - lambda_value) * (
+                1 - ms_ssim(pred, target, data_range=1, size_average=True)
+        )
     elif loss_type == 'Fusion_hinerv':
-        loss = lambda_value * F.l1_loss(pred, target) + (1-lambda_value)  * (1 - ms_ssim(pred, target, data_range=1, size_average=True, win_size=5))
+        loss = lambda_value * F.l1_loss(pred, target) + (1 - lambda_value) * (
+                1 - ms_ssim(pred, target, data_range=1, size_average=True, win_size=5)
+        )
     return loss
