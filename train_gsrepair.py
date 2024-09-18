@@ -3,6 +3,7 @@ import os
 import random
 
 import numpy as np
+import wandb
 import yaml
 import torch
 import torch.nn as nn
@@ -68,7 +69,7 @@ def prepare_training():
     return model, optimizer, epoch_start, lr_scheduler
 
 
-def train(train_loader, model, optimizer, writer):
+def train(train_loader, model, optimizer):
     model.train()
     train_loss = utils.Averager()
 
@@ -106,8 +107,8 @@ def train(train_loader, model, optimizer, writer):
         pred = None; loss = None
         train_loader.dataset.set_dynamic_scale_factor()
         if i % 100 == 0:
-            writer.add_images('train_imgs/pred', last_pred, i)
-            writer.add_images('train_imgs/gt', last_gt, i)
+            wandb.log({'train_imgs/pred': wandb.Image(last_pred)}, step=i)
+            wandb.log({'train_imgs/gt': wandb.Image(last_gt)}, step=i)
 
     return train_loss.item(), last_pred, last_gt
 
@@ -115,7 +116,10 @@ def train(train_loader, model, optimizer, writer):
 def main(config_, save_path):
     global config, log, writer
     config = config_
-    log, writer = utils.set_save_path(save_path)
+    log = utils.set_save_path(save_path, config)
+
+    wandb.log({'lr': 0})
+
     with open(os.path.join(save_path, 'config.yaml'), 'w') as f:
         yaml.dump(config, f, sort_keys=False)
 
@@ -143,16 +147,17 @@ def main(config_, save_path):
         t_epoch_start = timer.t()
         log_info = ['epoch {}/{}'.format(epoch, epoch_max)]
 
-        writer.add_scalar('lr', optimizer.param_groups[0]['lr'], epoch)
+        wandb.log({'lr': optimizer.param_groups[0]['lr']})
 
-        train_loss, train_pred, train_gt = train(train_loader, model, optimizer, writer)
+        train_loss, train_pred, train_gt = train(train_loader, model, optimizer)
         if lr_scheduler is not None:
             lr_scheduler.step()
 
         log_info.append('train: loss={:.4f}'.format(train_loss))
-        writer.add_scalars('loss', {'train': train_loss}, epoch)
-        writer.add_images('train_imgs_epoch/pred', train_pred, epoch)
-        writer.add_images('train_imgs_epoch/gt', train_gt, epoch)
+        wandb.log({'train_loss': train_loss})
+        wandb.log({'train_imgs_epoch/pred': wandb.Image(train_pred)})
+        wandb.log({'train_imgs_epoch/gt': wandb.Image(train_gt)})
+
 
         if n_gpus > 1:
             model_ = model.module
@@ -185,9 +190,10 @@ def main(config_, save_path):
                 eval_bsize=config.get('eval_bsize'))
 
             log_info.append('val: psnr={:.4f}'.format(val_res))
-            writer.add_scalars('psnr', {'val': val_res}, epoch)
-            writer.add_images('val_imgs_epoch/pred', val_pred, epoch)
-            writer.add_images('val_imgs_epoch/gt', val_gt, epoch)
+            wandb.log({'val_psnr': val_res})
+            wandb.log({'val_imgs_epoch/pred': wandb.Image(val_pred)})
+            wandb.log({'val_imgs_epoch/gt': wandb.Image(val_gt)})
+
 
             if val_res > max_val_v:
                 max_val_v = val_res
@@ -200,7 +206,6 @@ def main(config_, save_path):
         log_info.append('{} {}/{}'.format(t_epoch, t_elapsed, t_all))
 
         log(', '.join(log_info))
-        writer.flush()
 
 
 def set_random_seed(seed=42):

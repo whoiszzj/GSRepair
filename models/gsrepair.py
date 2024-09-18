@@ -81,7 +81,7 @@ class GSRepair(nn.Module):
                 return_alpha=False
             )
             out_img = torch.clamp(out_img, 0, 1)
-            out_img = out_img.permute(2, 1, 0).contiguous()
+            out_img = out_img.permute(2, 0, 1).contiguous()
             out_imgs.append(out_img)
 
         return torch.stack(out_imgs, dim=0)
@@ -91,18 +91,20 @@ class GSRepair(nn.Module):
         factor_h, factor_w = target_shape[0] / input_shape[0], target_shape[1] / input_shape[1]
         factor = max(factor_h, factor_w)
         self.gen_feat(inp)
+        self.feat = self.feat.permute(0, 1, 3, 2) # swap H and W to make sure it corresponds to the xy
         # flatten
-        B, C, H, W = self.feat.shape
-        self.feat = F.unfold(self.feat, 3, padding=1).view(B, C * 9, H, W)  # [B, C * 9, H, W]
-        self.feat = self.feat.permute(0, 2, 3, 1).reshape(B, H * W, C * 9)  # [B, H * W, C]
+        B, C, X, Y = self.feat.shape
+        self.feat = F.unfold(self.feat, 3, padding=1).view(B, C * 9, X, Y)  # [B, C * 9, X, Y]
+        self.feat = self.feat.permute(0, 2, 3, 1).reshape(B, X * Y, C * 9)  # [B, X * Y, C]
         self.feat = torch.layer_norm(self.feat, self.feat.shape[2:])
-        xy = self.get_xy((H, W), 2 * factor / max(target_shape[0], target_shape[1]))  # [B, H * W, 2]
-        scale = self.get_scale() * factor  # [B, H * W, 2]
-        rot = self.get_rot()  # [B, H * W, 1]
-        color = self.get_color()  # [B, H * W, 3]
+        xy = self.get_xy((X, Y), 2 * factor / max(target_shape[0], target_shape[1]))  # [B, X * Y, 2]
+        scale = self.get_scale() * 2 * factor  # [B, X * W, 2]
+        rot = self.get_rot()  # [B, X * Y, 1]
+        color = self.get_color()  # [B, X * Y, 3]
         # self.debug(inp[0], xy[0], scale[0], rot[0], target_shape)
         out_imgs = self.gaussian_render(xy, scale, rot, color, target_shape[0], target_shape[1])
         return out_imgs
+
 
     def debug(self, img, xy, scale, rot, target_shape):
         pixels = xy * torch.tensor([target_shape[1], target_shape[0]], device=xy.device)

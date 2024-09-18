@@ -13,20 +13,6 @@ import models
 import utils
 
 
-def batched_predict(model, inp, coord, cell, bsize):
-    with torch.no_grad():
-        model.gen_feat(inp)
-        n = coord.shape[1]
-        ql = 0
-        preds = []
-        while ql < n:
-            qr = min(ql + bsize, n)
-            pred = model.query_rgb(coord[:, ql: qr, :], cell[:, ql: qr, :])
-            preds.append(pred)
-            ql = qr
-        pred = torch.cat(preds, dim=1)
-    return pred
-
 
 def eval_psnr(loader, model, data_norm=None, eval_type=None, eval_bsize=None,
               verbose=False):
@@ -66,25 +52,20 @@ def eval_psnr(loader, model, data_norm=None, eval_type=None, eval_bsize=None,
             batch[k] = v.cuda()
 
         inp = (batch['inp'] - inp_sub) / inp_div
-        if eval_bsize is None:
-            with torch.no_grad():
-                target_shape = batch['gt'].shape[-2:]
-                pred = model(inp, target_shape)
-        else:
-            raise NotImplementedError
-            # pred = batched_predict(model, inp,
-            #     batch['coord'], batch['cell'], eval_bsize)
+        with torch.no_grad():
+            target_shape = batch['gt'].shape[-2:]
+            pred = model(inp, target_shape)
         pred = pred * gt_div + gt_sub
         pred.clamp_(0, 1)
 
-        if eval_type is not None: # reshape for shaving-eval
-            ih, iw = batch['inp'].shape[-2:]
-            s = math.sqrt(batch['coord'].shape[1] / (ih * iw))
-            shape = [batch['inp'].shape[0], round(ih * s), round(iw * s), 3]
-            pred = pred.view(*shape) \
-                .permute(0, 3, 1, 2).contiguous()
-            batch['gt'] = batch['gt'].view(*shape) \
-                .permute(0, 3, 1, 2).contiguous()
+        # if eval_type is not None: # reshape for shaving-eval
+        #     ih, iw = batch['inp'].shape[-2:]
+        #     s = math.sqrt(batch['coord'].shape[1] / (ih * iw))
+        #     shape = [batch['inp'].shape[0], round(ih * s), round(iw * s), 3]
+        #     pred = pred.view(*shape) \
+        #         .permute(0, 3, 1, 2).contiguous()
+        #     batch['gt'] = batch['gt'].view(*shape) \
+        #         .permute(0, 3, 1, 2).contiguous()
 
         res = metric_fn(pred, batch['gt'])
         val_res.add(res.item(), inp.shape[0])
