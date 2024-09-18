@@ -8,3 +8,5 @@ output/
 save/
 mytest/
 wandb/
+
+*.sh
