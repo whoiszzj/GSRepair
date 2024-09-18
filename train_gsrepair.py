@@ -17,6 +17,9 @@ import utils
 from test import eval_psnr
 from utils import loss_fn
 
+from torch.utils.data.distributed import DistributedSampler
+
+
 def make_data_loader(spec, tag=''):
     if spec is None:
         return None
@@ -31,8 +34,11 @@ def make_data_loader(spec, tag=''):
         else:
             log('  {}: {}'.format(k, v))
 
-    loader = DataLoader(dataset, batch_size=spec['batch_size'],
-        shuffle=(tag == 'train'), num_workers=8, pin_memory=True)
+    sampler = DistributedSampler(dataset)
+    loader = DataLoader(
+        dataset, batch_size=spec['batch_size'],
+        num_workers=8, pin_memory=True, sampler=sampler
+    )
     return loader
 
 
@@ -104,21 +110,19 @@ def train(train_loader, model, optimizer):
 
         last_pred = pred.detach()
         last_gt = gt.detach()
-        pred = None; loss = None
+        pred = None
+        loss = None
         train_loader.dataset.set_dynamic_scale_factor()
-        if i % 100 == 0:
-            wandb.log({'train_imgs/pred': wandb.Image(last_pred)}, step=i)
-            wandb.log({'train_imgs/gt': wandb.Image(last_gt)}, step=i)
 
     return train_loss.item(), last_pred, last_gt
 
 
-def main(config_, save_path):
+def main(config_, save_path, args):
     global config, log, writer
     config = config_
-    log = utils.set_save_path(save_path, config)
 
-    wandb.log({'lr': 0})
+    if args.local_rank == 0:
+        log = utils.set_save_path(save_path, config)
 
     with open(os.path.join(save_path, 'config.yaml'), 'w') as f:
         yaml.dump(config, f, sort_keys=False)
@@ -132,9 +136,9 @@ def main(config_, save_path):
 
     model, optimizer, epoch_start, lr_scheduler = prepare_training()
 
-    n_gpus = len(os.environ['CUDA_VISIBLE_DEVICES'].split(','))
-    if n_gpus > 1:
-        model = nn.parallel.DataParallel(model)
+    model = nn.parallel.DistributedDataParallel(
+        model, device_ids=[args.local_rank], output_device=args.local_rank
+    )
 
     epoch_max = config['epoch_max']
     epoch_val = config.get('epoch_val')
@@ -153,18 +157,14 @@ def main(config_, save_path):
         if lr_scheduler is not None:
             lr_scheduler.step()
 
-        log_info.append('train: loss={:.4f}'.format(train_loss))
-        wandb.log({'train_loss': train_loss})
-        wandb.log({'train_imgs_epoch/pred': wandb.Image(train_pred)})
-        wandb.log({'train_imgs_epoch/gt': wandb.Image(train_gt)})
+        if args.local_rank == 0:
+            log_info.append('train: loss={:.4f}'.format(train_loss))
+            wandb.log({'train_loss': train_loss})
+            wandb.log({'train_imgs_epoch/pred': wandb.Image(train_pred)})
+            wandb.log({'train_imgs_epoch/gt': wandb.Image(train_gt)})
 
-
-        if n_gpus > 1:
-            model_ = model.module
-        else:
-            model_ = model
         model_spec = config['model']
-        model_spec['sd'] = model_.state_dict()
+        model_spec['sd'] = model.state_dict()
         optimizer_spec = config['optimizer']
         optimizer_spec['sd'] = optimizer.state_dict()
         sv_file = {
@@ -177,27 +177,25 @@ def main(config_, save_path):
 
         if (epoch_save is not None) and (epoch % epoch_save == 0):
             torch.save(sv_file,
-                os.path.join(save_path, 'epoch-{}.pth'.format(epoch)))
+                       os.path.join(save_path, 'epoch-{}.pth'.format(epoch)))
 
         if (epoch_val is not None) and (epoch % epoch_val == 0):
-            if n_gpus > 1 and (config.get('eval_bsize') is not None):
-                model_ = model.module
-            else:
-                model_ = model
-            val_res, val_pred, val_gt = eval_psnr(val_loader, model_,
+            val_res, val_pred, val_gt = eval_psnr(
+                val_loader, model,
                 data_norm=config['data_norm'],
                 eval_type=config.get('eval_type'),
-                eval_bsize=config.get('eval_bsize'))
+                eval_bsize=config.get('eval_bsize')
+            )
 
-            log_info.append('val: psnr={:.4f}'.format(val_res))
-            wandb.log({'val_psnr': val_res})
-            wandb.log({'val_imgs_epoch/pred': wandb.Image(val_pred)})
-            wandb.log({'val_imgs_epoch/gt': wandb.Image(val_gt)})
+            if args.local_rank == 0:
+                log_info.append('val: psnr={:.4f}'.format(val_res))
+                wandb.log({'val_psnr': val_res})
+                wandb.log({'val_imgs_epoch/pred': wandb.Image(val_pred)})
+                wandb.log({'val_imgs_epoch/gt': wandb.Image(val_gt)})
 
-
-            if val_res > max_val_v:
-                max_val_v = val_res
-                torch.save(sv_file, os.path.join(save_path, 'epoch-best.pth'))
+                if val_res > max_val_v:
+                    max_val_v = val_res
+                    torch.save(sv_file, os.path.join(save_path, 'epoch-best.pth'))
 
         t = timer.t()
         prog = (epoch - epoch_start + 1) / (epoch_max - epoch_start + 1)
@@ -217,15 +215,19 @@ def set_random_seed(seed=42):
         torch.backends.cudnn.benchmark = False
         np.random.seed(seed)
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config')
     parser.add_argument('--name', default=None)
     parser.add_argument('--tag', default=None)
-    parser.add_argument('--gpu', default='0')
+    parser.add_argument("--local-rank", type=int, default=-1)
+
     args = parser.parse_args()
 
-    os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
+    torch.cuda.set_device(args.local_rank)
+    device = torch.device("cuda", args.local_rank)
+    torch.distributed.init_process_group(backend='nccl')
 
     set_random_seed()
 
@@ -240,4 +242,4 @@ if __name__ == '__main__':
         save_name += '_' + args.tag
     save_path = os.path.join('./save', save_name)
 
-    main(config, save_path)
+    main(config, save_path, args)
