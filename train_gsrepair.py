@@ -117,11 +117,12 @@ def train(train_loader, model, optimizer):
     return train_loss.item(), last_pred, last_gt
 
 
-def main(config_, save_path, args):
+def main(config_, save_path):
     global config, log, writer
     config = config_
 
-    if args.local_rank == 0:
+    local_rank = int(os.environ.get('LOCAL_RANK', 0))
+    if local_rank == 0:
         log = utils.set_save_path(save_path, config)
 
     with open(os.path.join(save_path, 'config.yaml'), 'w') as f:
@@ -137,7 +138,7 @@ def main(config_, save_path, args):
     model, optimizer, epoch_start, lr_scheduler = prepare_training()
 
     model = nn.parallel.DistributedDataParallel(
-        model, device_ids=[args.local_rank], output_device=args.local_rank
+        model, device_ids=[local_rank], output_device=local_rank
     )
 
     epoch_max = config['epoch_max']
@@ -157,7 +158,7 @@ def main(config_, save_path, args):
         if lr_scheduler is not None:
             lr_scheduler.step()
 
-        if args.local_rank == 0:
+        if local_rank == 0:
             log_info.append('train: loss={:.4f}'.format(train_loss))
             wandb.log({'train_loss': train_loss})
             wandb.log({'train_imgs_epoch/pred': wandb.Image(train_pred)})
@@ -173,11 +174,11 @@ def main(config_, save_path, args):
             'epoch': epoch
         }
 
-        torch.save(sv_file, os.path.join(save_path, 'epoch-last.pth'))
+        if local_rank == 0:
+            torch.save(sv_file, os.path.join(save_path, 'epoch-last.pth'))
 
-        if (epoch_save is not None) and (epoch % epoch_save == 0):
-            torch.save(sv_file,
-                       os.path.join(save_path, 'epoch-{}.pth'.format(epoch)))
+        if (epoch_save is not None) and (epoch % epoch_save == 0) and (local_rank == 0):
+            torch.save(sv_file, os.path.join(save_path, 'epoch-{}.pth'.format(epoch)))
 
         if (epoch_val is not None) and (epoch % epoch_val == 0):
             val_res, val_pred, val_gt = eval_psnr(
@@ -187,7 +188,7 @@ def main(config_, save_path, args):
                 eval_bsize=config.get('eval_bsize')
             )
 
-            if args.local_rank == 0:
+            if local_rank == 0:
                 log_info.append('val: psnr={:.4f}'.format(val_res))
                 wandb.log({'val_psnr': val_res})
                 wandb.log({'val_imgs_epoch/pred': wandb.Image(val_pred)})
@@ -221,12 +222,12 @@ if __name__ == '__main__':
     parser.add_argument('--config')
     parser.add_argument('--name', default=None)
     parser.add_argument('--tag', default=None)
-    parser.add_argument("--local-rank", type=int, default=-1)
 
     args = parser.parse_args()
+    local_rank = int(os.environ.get('LOCAL_RANK', 0))
 
-    torch.cuda.set_device(args.local_rank)
-    device = torch.device("cuda", args.local_rank)
+    torch.cuda.set_device(local_rank)
+    device = torch.device("cuda", local_rank)
     torch.distributed.init_process_group(backend='nccl')
 
     set_random_seed()
@@ -242,4 +243,4 @@ if __name__ == '__main__':
         save_name += '_' + args.tag
     save_path = os.path.join('./save', save_name)
 
-    main(config, save_path, args)
+    main(config, save_path)
