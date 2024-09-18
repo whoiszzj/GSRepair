@@ -26,14 +26,6 @@ def make_data_loader(spec, tag=''):
 
     dataset = datasets.make(spec['dataset'])
     dataset = datasets.make(spec['wrapper'], args={'dataset': dataset})
-
-    log('{} dataset: size={}'.format(tag, len(dataset)))
-    for k, v in dataset[0].items():
-        if isinstance(v, torch.Tensor):
-            log('  {}: shape={}'.format(k, tuple(v.shape)))
-        else:
-            log('  {}: {}'.format(k, v))
-
     sampler = DistributedSampler(dataset)
     loader = DataLoader(
         dataset, batch_size=spec['batch_size'],
@@ -71,7 +63,6 @@ def prepare_training():
         else:
             lr_scheduler = MultiStepLR(optimizer, **config['multi_step_lr'])
 
-    log('model: #params={}'.format(utils.compute_num_params(model, text=True)))
     return model, optimizer, epoch_start, lr_scheduler
 
 
@@ -124,9 +115,8 @@ def main(config_, save_path):
     local_rank = int(os.environ.get('LOCAL_RANK', 0))
     if local_rank == 0:
         log = utils.set_save_path(save_path, config)
-
-    with open(os.path.join(save_path, 'config.yaml'), 'w') as f:
-        yaml.dump(config, f, sort_keys=False)
+        with open(os.path.join(save_path, 'config.yaml'), 'w') as f:
+            yaml.dump(config, f, sort_keys=False)
 
     train_loader, val_loader = make_data_loaders()
     if config.get('data_norm') is None:
@@ -150,9 +140,9 @@ def main(config_, save_path):
 
     for epoch in range(epoch_start, epoch_max + 1):
         t_epoch_start = timer.t()
-        log_info = ['epoch {}/{}'.format(epoch, epoch_max)]
-
-        wandb.log({'lr': optimizer.param_groups[0]['lr']})
+        if local_rank == 0:
+            log_info = ['epoch {}/{}'.format(epoch, epoch_max)]
+            wandb.log({'lr': optimizer.param_groups[0]['lr']}, step=epoch)
 
         train_loss, train_pred, train_gt = train(train_loader, model, optimizer)
         if lr_scheduler is not None:
@@ -160,9 +150,11 @@ def main(config_, save_path):
 
         if local_rank == 0:
             log_info.append('train: loss={:.4f}'.format(train_loss))
-            wandb.log({'train_loss': train_loss})
-            wandb.log({'train_imgs_epoch/pred': wandb.Image(train_pred)})
-            wandb.log({'train_imgs_epoch/gt': wandb.Image(train_gt)})
+            wandb.log({
+                'train_loss': train_loss,
+                'train_imgs_epoch/pred': wandb.Image(train_pred),
+                'train_imgs_epoch/gt': wandb.Image(train_gt)}, step=epoch
+            )
 
         model_spec = config['model']
         model_spec['sd'] = model.state_dict()
@@ -190,9 +182,11 @@ def main(config_, save_path):
 
             if local_rank == 0:
                 log_info.append('val: psnr={:.4f}'.format(val_res))
-                wandb.log({'val_psnr': val_res})
-                wandb.log({'val_imgs_epoch/pred': wandb.Image(val_pred)})
-                wandb.log({'val_imgs_epoch/gt': wandb.Image(val_gt)})
+                wandb.log({
+                    'val_psnr': val_res,
+                    'val_imgs_epoch/pred': wandb.Image(val_pred),
+                    'val_imgs_epoch/gt': wandb.Image(val_gt)}, step=epoch
+                )
 
                 if val_res > max_val_v:
                     max_val_v = val_res
@@ -202,9 +196,9 @@ def main(config_, save_path):
         prog = (epoch - epoch_start + 1) / (epoch_max - epoch_start + 1)
         t_epoch = utils.time_text(t - t_epoch_start)
         t_elapsed, t_all = utils.time_text(t), utils.time_text(t / prog)
-        log_info.append('{} {}/{}'.format(t_epoch, t_elapsed, t_all))
-
-        log(', '.join(log_info))
+        if local_rank == 0:
+            log_info.append('{} {}/{}'.format(t_epoch, t_elapsed, t_all))
+            log(', '.join(log_info))
 
 
 def set_random_seed(seed=42):
